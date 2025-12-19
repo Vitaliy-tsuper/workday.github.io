@@ -5,6 +5,9 @@ import { AuthProvider } from '@/context/auth-context';
 
 export const metadata: Metadata = {
   title: 'Workday Compass',
+  icons: {
+    icon: '/favicon.png', // Updated path to use logo.png
+  },
 };
 
 export default function RootLayout({
