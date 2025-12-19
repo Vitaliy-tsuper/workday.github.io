@@ -5,7 +5,6 @@ import { AuthProvider } from '@/context/auth-context';
 
 export const metadata: Metadata = {
   title: 'Workday Compass',
-  description: 'Мережевий сервіс для обліку фінансів',
 };
 
 export default function RootLayout({
