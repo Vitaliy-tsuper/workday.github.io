@@ -2,9 +2,9 @@
 "use client"
 
 import * as React from 'react'
-import { Wallet, CalendarDays, Banknote, Save } from 'lucide-react'
+import { Wallet, CalendarDays, Banknote, Save, History } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
-import { calculateMonthlyDays, calculateMonthlyEarnings, calculateTotalEarnings } from '@/lib/dates'
+import { calculateMonthlyDays, calculateMonthlyEarnings, calculateTotalEarnings, calculateTotalDays } from '@/lib/dates'
 import type { WorkdayData } from '@/lib/dates'
 import { format } from 'date-fns'
 import { uk } from 'date-fns/locale'
@@ -31,6 +31,7 @@ export function TotalsSummary({ workdays, currentMonth, dailyRate, onDailyRateCh
 
   const monthlyDays = React.useMemo(() => calculateMonthlyDays(workdays, currentMonth), [workdays, currentMonth]);
   const monthlyEarnings = React.useMemo(() => calculateMonthlyEarnings(workdays, currentMonth, dailyRate), [workdays, currentMonth, dailyRate]);
+  const totalDays = React.useMemo(() => calculateTotalDays(workdays), [workdays]);
   const totalEarnings = React.useMemo(() => calculateTotalEarnings(workdays, dailyRate), [workdays, dailyRate]);
 
   const monthName = format(currentMonth, 'LLLL yyyy', { locale: uk });
@@ -62,7 +63,7 @@ export function TotalsSummary({ workdays, currentMonth, dailyRate, onDailyRateCh
         <div className="flex items-center justify-between rounded-lg border bg-card-foreground/5 p-4">
             <div className='flex items-center gap-3'>
                 <CalendarDays className="h-6 w-6 text-primary" />
-                <span className="text-sm font-medium">Кількість відпрацьованих днів</span>
+                <span className="text-sm font-medium">Днів за місяць</span>
             </div>
             <div className="text-lg font-bold text-primary">{monthlyDays} дн.</div>
         </div>
@@ -72,6 +73,14 @@ export function TotalsSummary({ workdays, currentMonth, dailyRate, onDailyRateCh
                 <span className="text-sm font-medium">Заробив за місяць</span>
             </div>
           <div className="text-lg font-bold text-accent">{monthlyEarnings.toLocaleString('uk-UA')} грн</div>
+        </div>
+        <Separator />
+        <div className="flex items-center justify-between rounded-lg border bg-card-foreground/5 p-4">
+            <div className='flex items-center gap-3'>
+                <History className="h-6 w-6 text-muted-foreground" />
+                <span className="text-sm font-medium">Днів за весь час</span>
+            </div>
+            <div className="text-lg font-bold text-muted-foreground">{totalDays} дн.</div>
         </div>
         <div className="flex items-center justify-between rounded-lg border bg-card-foreground/5 p-4">
             <div className='flex items-center gap-3'>
