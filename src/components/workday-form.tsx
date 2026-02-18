@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -6,7 +7,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { format, formatISO, isValid } from "date-fns"
 import { uk } from "date-fns/locale"
-import { Calendar as CalendarIcon, Check, Trash2 } from "lucide-react"
+import { Calendar as CalendarIcon, Check, Trash2, Banknote } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -25,6 +26,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import type { WorkdayData } from "@/lib/dates"
 import { useToast } from "@/hooks/use-toast"
 
@@ -32,42 +34,53 @@ const formSchema = z.object({
   date: z.date({
     required_error: "Дата є обов'язковою.",
   }),
+  rate: z.coerce.number().min(0, "Ставка не може бути менше 0."),
 })
 
 type WorkdayFormProps = {
   selectedDate: Date;
   workdays: WorkdayData;
-  onSave: (date: Date) => void;
+  onSave: (date: Date, rate: number) => void;
   onRemove: (date: Date) => void;
   onDateChange: (date: Date) => void;
+  defaultDailyRate: number;
 }
 
-export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateChange }: WorkdayFormProps) {
+export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateChange, defaultDailyRate }: WorkdayFormProps) {
   const { toast } = useToast()
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       date: selectedDate,
+      rate: defaultDailyRate,
     },
   })
 
   const dateIsValid = selectedDate && isValid(selectedDate);
   const dateString = dateIsValid ? formatISO(selectedDate, { representation: 'date' }) : ""
-  const isWorkday = dateIsValid ? !!workdays[dateString] : false;
+  const existingData = workdays[dateString];
+  const isWorkday = typeof existingData === 'object' ? existingData.worked : !!existingData;
 
+  const setValue = form.setValue;
   React.useEffect(() => {
     if (dateIsValid) {
-      form.setValue("date", selectedDate)
+      setValue("date", selectedDate);
+      
+      let rateToSet = defaultDailyRate;
+      if (typeof existingData === 'object' && existingData.rate !== undefined) {
+        rateToSet = existingData.rate;
+      }
+      setValue("rate", rateToSet);
     }
-  }, [selectedDate, form, dateIsValid])
+  }, [selectedDate, dateIsValid, existingData, defaultDailyRate, setValue]);
 
-  function handleMarkAsWorked() {
+  function onSubmit(values: z.infer<typeof formSchema>) {
     if (!dateIsValid) return;
-    onSave(selectedDate);
+    onSave(values.date, values.rate);
     toast({
       title: "Збережено!",
-      description: `День ${format(selectedDate, "PPP", { locale: uk })} відмічено як робочий.`,
+      description: `День ${format(values.date, "PPP", { locale: uk })} відмічено. Ставка: ${values.rate} грн.`,
     });
   }
   
@@ -88,7 +101,7 @@ export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateCh
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <FormField
               control={form.control}
               name="date"
@@ -133,18 +146,34 @@ export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateCh
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="rate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ставка за цей день (грн)</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input type="number" {...field} className="pl-9" />
+                      <Banknote className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             
             <div className="flex items-center gap-2 pt-2">
-              {isWorkday ? (
-                 <Button type="button" variant="destructive" onClick={handleRemoveMark} disabled={!dateIsValid} className="flex-1">
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Прибрати відмітку
+              <Button type="submit" className="flex-1" disabled={!dateIsValid}>
+                <Check className="mr-2 h-4 w-4" />
+                {isWorkday ? 'Оновити' : 'Відмітити робочим'}
+              </Button>
+              
+              {isWorkday && (
+                 <Button type="button" variant="outline" onClick={handleRemoveMark} disabled={!dateIsValid} className="px-3">
+                    <Trash2 className="h-4 w-4 text-destructive" />
                  </Button>
-              ) : (
-                <Button type="button" onClick={handleMarkAsWorked} className="flex-1" disabled={!dateIsValid}>
-                  <Check className="mr-2 h-4 w-4" />
-                  Відмітити робочим
-                </Button>
               )}
             </div>
           </form>
