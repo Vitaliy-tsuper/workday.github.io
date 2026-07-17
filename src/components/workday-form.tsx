@@ -3,11 +3,11 @@
 
 import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { useForm, useFieldArray } from "react-hook-form"
 import { z } from "zod"
 import { format, formatISO, isValid } from "date-fns"
 import { uk } from "date-fns/locale"
-import { Calendar as CalendarIcon, Check, Trash2, Clock } from "lucide-react"
+import { Calendar as CalendarIcon, Check, Trash2, Clock, Plus, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { WorkdayData } from "@/lib/dates"
+import type { WorkdayData, CategoryHours } from "@/lib/dates"
 import { useToast } from "@/hooks/use-toast"
 
 const formSchema = z.object({
@@ -35,17 +35,33 @@ const formSchema = z.object({
     required_error: "Дата є обов'язковою.",
   }),
   hours: z.coerce.number().min(0.5, "Мінімум 0.5 год").max(24, "Максимум 24 год"),
-})
+  categories: z.array(z.object({
+    name: z.string().min(1, "Введіть назву"),
+    hours: z.coerce.number().min(0.1, "Більше 0").max(24, "Максимум 24 год")
+  })).default([]),
+}).superRefine((data, ctx) => {
+  if (data.categories && data.categories.length > 0) {
+    const totalCat = data.categories.reduce((sum, cat) => sum + cat.hours, 0);
+    if (totalCat > data.hours) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Сума годин категорій перевищує загальну кількість",
+        path: ["hours"],
+      });
+    }
+  }
+});
 
 type WorkdayFormProps = {
   selectedDate: Date;
   workdays: WorkdayData;
-  onSave: (date: Date, hours: number) => void;
+  savedCategories?: string[];
+  onSave: (date: Date, hours: number, categories?: CategoryHours[]) => void;
   onRemove: (date: Date) => void;
   onDateChange: (date: Date) => void;
 }
 
-export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateChange }: WorkdayFormProps) {
+export function WorkdayForm({ selectedDate, workdays, savedCategories = [], onSave, onRemove, onDateChange }: WorkdayFormProps) {
   const { toast } = useToast()
   
   const form = useForm<z.infer<typeof formSchema>>({
@@ -53,7 +69,13 @@ export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateCh
     defaultValues: {
       date: selectedDate,
       hours: 8,
+      categories: [],
     },
+  })
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "categories",
   })
 
   const dateIsValid = selectedDate && isValid(selectedDate);
@@ -67,15 +89,17 @@ export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateCh
       form.setValue("date", selectedDate);
       if (isWorkday && typeof entry === 'object') {
         form.setValue("hours", entry.hours || 8);
+        form.setValue("categories", entry.categories || []);
       } else {
         form.setValue("hours", 8);
+        form.setValue("categories", []);
       }
     }
   }, [selectedDate, dateIsValid, isWorkday, entry, form])
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     if (!dateIsValid) return;
-    onSave(values.date, values.hours);
+    onSave(values.date, values.hours, values.categories.length > 0 ? values.categories : undefined);
     toast({
       title: "Збережено!",
       description: `День ${format(values.date, "PPP", { locale: uk })} відмічено: ${values.hours} год.`,
@@ -151,7 +175,7 @@ export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateCh
               name="hours"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Кількість годин</FormLabel>
+                  <FormLabel>Загальна кількість годин</FormLabel>
                   <FormControl>
                     <div className="relative">
                       <Input type="number" step="0.5" className="pl-9" {...field} />
@@ -162,14 +186,73 @@ export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateCh
                 </FormItem>
               )}
             />
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <FormLabel>Категорії (необов'язково)</FormLabel>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => append({ name: "", hours: 1 })}
+                >
+                  <Plus className="h-4 w-4 mr-1" /> Додати
+                </Button>
+              </div>
+              
+              {fields.map((field, index) => (
+                <div key={field.id} className="flex items-start gap-2">
+                  <FormField
+                    control={form.control}
+                    name={`categories.${index}.name`}
+                    render={({ field }) => (
+                      <FormItem className="flex-1">
+                        <FormControl>
+                          <Input list="saved-categories" placeholder="Назва (напр. Робота А)" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name={`categories.${index}.hours`}
+                    render={({ field }) => (
+                      <FormItem className="w-24">
+                        <FormControl>
+                          <Input type="number" step="0.5" placeholder="Години" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => remove(index)}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            {savedCategories.length > 0 && (
+              <datalist id="saved-categories">
+                {savedCategories.map(cat => (
+                  <option key={cat} value={cat} />
+                ))}
+              </datalist>
+            )}
             
             <div className="flex flex-col gap-2 pt-2">
-              {!isWorkday ? (
-                <Button type="submit" className="w-full" disabled={!dateIsValid}>
-                  <Check className="mr-2 h-4 w-4" />
-                  Відмітити робочим
-                </Button>
-              ) : (
+              <Button type="submit" className="w-full" disabled={!dateIsValid}>
+                <Check className="mr-2 h-4 w-4" />
+                {isWorkday ? "Оновити відмітку" : "Відмітити робочим"}
+              </Button>
+              {isWorkday && (
                  <Button 
                     type="button" 
                     variant="destructive" 
@@ -187,3 +270,4 @@ export function WorkdayForm({ selectedDate, workdays, onSave, onRemove, onDateCh
     </Card>
   )
 }
+

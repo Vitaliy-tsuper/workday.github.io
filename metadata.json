@@ -1,4 +1,5 @@
 {
-  "name": "studio-5338642269",
-  "description": "App imported from Firebase Studio"
+  "name": "Workday Compass",
+  "description": "An interactive calendar-based assistant for tracking workdays, hours worked, and calculating financial earnings with custom hourly rates.",
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

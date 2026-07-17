@@ -6,9 +6,15 @@ import {
   parseISO,
 } from 'date-fns';
 
+export type CategoryHours = {
+  name: string;
+  hours: number;
+};
+
 export type WorkdayEntry = {
   worked: boolean;
   hours: number;
+  categories?: CategoryHours[];
 };
 
 export type WorkdayData = Record<string, WorkdayEntry | boolean | undefined>;
@@ -65,8 +71,37 @@ export const calculateMonthlyHours = (workdays: WorkdayData, date: Date): number
   }, 0);
 };
 
-export const calculateMonthlyEarnings = (workdays: WorkdayData, date: Date, hourlyRate: number): number => {
-  return calculateMonthlyHours(workdays, date) * hourlyRate;
+export const calculateMonthlyEarnings = (workdays: WorkdayData, date: Date, hourlyRate: number, categoryRates: Record<string, number> = {}): number => {
+  const interval = getCurrentMonthInterval(date);
+  let totalEarnings = 0;
+
+  Object.entries(workdays).forEach(([dateStr, entry]) => {
+    if (!isWorked(entry)) return;
+    try {
+      const dayDate = parseISO(dateStr);
+      if (isWithinInterval(dayDate, interval)) {
+        const hours = getEntryHours(entry);
+        if (typeof entry === 'object' && entry.categories && entry.categories.length > 0) {
+          let catHoursTotal = 0;
+          entry.categories.forEach(cat => {
+            const catRate = categoryRates[cat.name] !== undefined ? categoryRates[cat.name] : hourlyRate;
+            totalEarnings += cat.hours * catRate;
+            catHoursTotal += cat.hours;
+          });
+          const remainingHours = hours - catHoursTotal;
+          if (remainingHours > 0) {
+            totalEarnings += remainingHours * hourlyRate;
+          }
+        } else {
+          totalEarnings += hours * hourlyRate;
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+  });
+
+  return totalEarnings;
 };
 
 export const calculateTotalDays = (workdays: WorkdayData): number => {
@@ -78,4 +113,26 @@ export const calculateTotalHours = (workdays: WorkdayData): number => {
     if (!isWorked(entry)) return total;
     return total + getEntryHours(entry);
   }, 0);
+};
+
+export const calculateMonthlyCategoryHours = (workdays: WorkdayData, date: Date): Record<string, number> => {
+  const interval = getCurrentMonthInterval(date);
+  const categories: Record<string, number> = {};
+
+  Object.entries(workdays).forEach(([dateStr, entry]) => {
+    if (!isWorked(entry)) return;
+    try {
+      const dayDate = parseISO(dateStr);
+      if (isWithinInterval(dayDate, interval)) {
+        if (typeof entry === 'object' && entry.categories && entry.categories.length > 0) {
+          entry.categories.forEach(cat => {
+            categories[cat.name] = (categories[cat.name] || 0) + cat.hours;
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+  });
+  return categories;
 };

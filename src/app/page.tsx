@@ -33,6 +33,9 @@ export default function Home() {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [dataLoading, setDataLoading] = useState(true);
   const [hourlyRate, setHourlyRate] = useState<number>(100);
+  const [categoryRates, setCategoryRates] = useState<Record<string, number>>({});
+
+  const [savedCategories, setSavedCategories] = useState<string[]>([]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -61,6 +64,15 @@ export default function Home() {
               });
             }
             setWorkdays(normalizedWorkdays);
+            
+            if (data.savedCategories) {
+              setSavedCategories(data.savedCategories);
+            }
+            
+            if (data.categoryRates) {
+              setCategoryRates(data.categoryRates);
+            }
+
             // If data.hourlyRate doesn't exist, we might try to fallback to dailyRate/8 if it existed
             if (data.hourlyRate !== undefined) {
               setHourlyRate(data.hourlyRate);
@@ -69,8 +81,10 @@ export default function Home() {
             }
           } else {
             setWorkdays({});
-            await setDoc(doc(db, "users", user.uid), { workdays: {}, hourlyRate: 100 });
+            await setDoc(doc(db, "users", user.uid), { workdays: {}, hourlyRate: 100, savedCategories: [], categoryRates: {} });
             setHourlyRate(100);
+            setSavedCategories([]);
+            setCategoryRates({});
           }
         } catch (error) {
           console.error("Firestore read error:", error);
@@ -104,23 +118,54 @@ export default function Home() {
     }
   };
 
-  const handleSaveWorkday = async (date: Date, hours: number) => {
+  const handleCategoryRateChange = async (category: string, newRate: number) => {
+    if (!user || !db) return;
+    const newCategoryRates = { ...categoryRates, [category]: newRate };
+    setCategoryRates(newCategoryRates);
+    try {
+        const userDocRef = doc(db, "users", user.uid);
+        await updateDoc(userDocRef, { [`categoryRates.${category}`]: newRate });
+    } catch (error) {
+        toast({
+            variant: "destructive",
+            title: "Помилка оновлення",
+            description: "Не вдалося оновити ставку для категорії.",
+        });
+    }
+  };
+
+  const handleSaveWorkday = async (date: Date, hours: number, categories?: { name: string, hours: number }[]) => {
     if (!user || !db) return;
     const dateString = formatISO(date, { representation: 'date' });
     
     const originalWorkdays = workdays;
-    const entry = { worked: true, hours };
+    const originalSavedCategories = savedCategories;
+
+    const entry = { worked: true, hours, categories };
     const newWorkdays = {
       ...workdays,
       [dateString]: entry,
     };
     setWorkdays(newWorkdays);
 
+    const newCategoriesNames = categories?.map(c => c.name.trim()).filter(name => name && !savedCategories.includes(name)) || [];
+    let updatedCategories = savedCategories;
+    if (newCategoriesNames.length > 0) {
+      updatedCategories = [...savedCategories, ...newCategoriesNames];
+      setSavedCategories(updatedCategories);
+    }
+
     try {
       const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, { workdays: { [dateString]: entry } }, { merge: true });
+      const updates: any = { [`workdays.${dateString}`]: entry };
+      if (newCategoriesNames.length > 0) {
+        await setDoc(userDocRef, { workdays: { [dateString]: entry }, savedCategories: updatedCategories }, { merge: true });
+      } else {
+        await setDoc(userDocRef, { workdays: { [dateString]: entry } }, { merge: true });
+      }
     } catch (error) {
       setWorkdays(originalWorkdays);
+      setSavedCategories(originalSavedCategories);
       toast({
           variant: "destructive",
           title: "Помилка збереження",
@@ -203,6 +248,7 @@ export default function Home() {
             <WorkdayForm 
               selectedDate={selectedDate}
               workdays={workdays}
+              savedCategories={savedCategories}
               onSave={handleSaveWorkday}
               onRemove={handleRemoveWorkday}
               onDateChange={setSelectedDate}
@@ -212,6 +258,9 @@ export default function Home() {
               currentMonth={currentMonth} 
               hourlyRate={hourlyRate}
               onHourlyRateChange={handleHourlyRateChange}
+              savedCategories={savedCategories}
+              categoryRates={categoryRates}
+              onCategoryRateChange={handleCategoryRateChange}
             />
           </div>
           <div className="lg:col-span-3">
