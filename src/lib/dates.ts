@@ -9,15 +9,50 @@ import {
 export type CategoryHours = {
   name: string;
   hours: number;
+  startTime?: string;
+  endTime?: string;
 };
 
 export type WorkdayEntry = {
   worked: boolean;
   hours: number;
+  startTime?: string;
+  endTime?: string;
+  breakMinutes?: number;
   categories?: CategoryHours[];
 };
 
 export type WorkdayData = Record<string, WorkdayEntry | boolean | undefined>;
+
+export const calculateHoursFromInterval = (
+  start: string,
+  end: string,
+  breakMinutes: number = 0
+): number => {
+  if (!start || !end) return 0;
+  const [sH, sM] = start.split(":").map(Number);
+  const [eH, eM] = end.split(":").map(Number);
+  if (isNaN(sH) || isNaN(sM) || isNaN(eH) || isNaN(eM)) return 0;
+
+  let totalMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+  if (totalMinutes <= 0) {
+    // Over midnight shift or 24h
+    totalMinutes += 24 * 60;
+  }
+  totalMinutes -= (breakMinutes || 0);
+  if (totalMinutes < 0) totalMinutes = 0;
+
+  return Math.round((totalMinutes / 60) * 100) / 100;
+};
+
+export const formatHoursAndMinutes = (totalHours: number): string => {
+  const wholeHours = Math.floor(totalHours);
+  const minutes = Math.round((totalHours - wholeHours) * 60);
+  if (minutes === 0) {
+    return `${wholeHours} год`;
+  }
+  return `${wholeHours} год ${minutes} хв`;
+};
 
 const getCurrentMonthInterval = (date: Date) => {
   const monthStart = startOfMonth(date);

@@ -87,3 +87,18 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+  #workday-report-printable {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}

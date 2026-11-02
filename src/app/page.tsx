@@ -6,8 +6,9 @@ import { Compass as HomeIcon, LogOut } from "lucide-react";
 import { WorkdayForm } from "@/components/workday-form";
 import { TotalsSummary } from "@/components/totals-summary";
 import { WorkdayCalendar } from "@/components/workday-calendar";
+import { WorkdayReport } from "@/components/workday-report";
 import type { WorkdayData } from "@/lib/dates";
-import { formatISO } from "date-fns";
+import { format } from "date-fns";
 import { useAuth } from "@/context/auth-context";
 import { auth, db } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
@@ -25,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading, signOutGuest } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const [workdays, setWorkdays] = useState<WorkdayData>({});
@@ -63,6 +64,15 @@ export default function Home() {
                 }
               });
             }
+            if (typeof window !== "undefined") {
+              try {
+                const storedLocal = localStorage.getItem("workdays");
+                if (storedLocal) {
+                  const parsed = JSON.parse(storedLocal);
+                  Object.assign(normalizedWorkdays, parsed);
+                }
+              } catch (e) {}
+            }
             setWorkdays(normalizedWorkdays);
             
             if (data.savedCategories) {
@@ -73,39 +83,93 @@ export default function Home() {
               setCategoryRates(data.categoryRates);
             }
 
-            // If data.hourlyRate doesn't exist, we might try to fallback to dailyRate/8 if it existed
             if (data.hourlyRate !== undefined) {
               setHourlyRate(data.hourlyRate);
             } else if (data.dailyRate !== undefined) {
               setHourlyRate(data.dailyRate / 8);
             }
           } else {
-            setWorkdays({});
-            await setDoc(doc(db, "users", user.uid), { workdays: {}, hourlyRate: 100, savedCategories: [], categoryRates: {} });
-            setHourlyRate(100);
-            setSavedCategories([]);
-            setCategoryRates({});
+            let initialWorkdays: WorkdayData = {};
+            let initialCategories: string[] = [];
+            let initialCategoryRates: Record<string, number> = {};
+            let initialHourlyRate = 100;
+
+            if (typeof window !== "undefined") {
+              try {
+                const storedWorkdays = localStorage.getItem("workdays");
+                if (storedWorkdays) initialWorkdays = JSON.parse(storedWorkdays);
+                const storedCategories = localStorage.getItem("savedCategories");
+                if (storedCategories) initialCategories = JSON.parse(storedCategories);
+                const storedRates = localStorage.getItem("categoryRates");
+                if (storedRates) initialCategoryRates = JSON.parse(storedRates);
+                const storedRate = localStorage.getItem("hourlyRate");
+                if (storedRate) initialHourlyRate = Number(storedRate);
+              } catch (e) {}
+            }
+
+            setWorkdays(initialWorkdays);
+            setSavedCategories(initialCategories);
+            setCategoryRates(initialCategoryRates);
+            setHourlyRate(initialHourlyRate);
+
+            try {
+              await setDoc(doc(db, "users", user.uid), {
+                workdays: initialWorkdays,
+                hourlyRate: initialHourlyRate,
+                savedCategories: initialCategories,
+                categoryRates: initialCategoryRates
+              });
+            } catch (e) {
+              console.warn("Initial user doc creation error:", e);
+            }
           }
         } catch (error) {
           console.error("Firestore read error:", error);
-          toast({
-            variant: "destructive",
-            title: "Помилка завантаження даних",
-            description: "Не вдалося з'єднатися з базою даних.",
-          });
+          if (typeof window !== "undefined") {
+            try {
+              const storedWorkdays = localStorage.getItem("workdays");
+              if (storedWorkdays) setWorkdays(JSON.parse(storedWorkdays));
+              const storedCategories = localStorage.getItem("savedCategories");
+              if (storedCategories) setSavedCategories(JSON.parse(storedCategories));
+              const storedRates = localStorage.getItem("categoryRates");
+              if (storedRates) setCategoryRates(JSON.parse(storedRates));
+              const storedHourlyRate = localStorage.getItem("hourlyRate");
+              if (storedHourlyRate) setHourlyRate(Number(storedHourlyRate));
+            } catch (e) {}
+          }
         } finally {
           setDataLoading(false);
         }
       };
       fetchData();
+    } else if (user && !db) {
+      if (typeof window !== "undefined") {
+        try {
+          const storedWorkdays = localStorage.getItem("workdays");
+          if (storedWorkdays) setWorkdays(JSON.parse(storedWorkdays));
+          const storedCategories = localStorage.getItem("savedCategories");
+          if (storedCategories) setSavedCategories(JSON.parse(storedCategories));
+          const storedRates = localStorage.getItem("categoryRates");
+          if (storedRates) setCategoryRates(JSON.parse(storedRates));
+          const storedHourlyRate = localStorage.getItem("hourlyRate");
+          if (storedHourlyRate) setHourlyRate(Number(storedHourlyRate));
+        } catch (e) {
+          console.error("Local data loading error:", e);
+        }
+      }
+      setDataLoading(false);
     } else if (!loading) {
       setDataLoading(false);
     }
   }, [user, loading, toast]);
 
   const handleHourlyRateChange = async (newRate: number) => {
-    if (!user || !db) return;
+    if (!user) return;
     setHourlyRate(newRate);
+    if (!db) {
+      if (typeof window !== "undefined") localStorage.setItem("hourlyRate", String(newRate));
+      return;
+    }
     try {
         const userDocRef = doc(db, "users", user.uid);
         await updateDoc(userDocRef, { hourlyRate: newRate });
@@ -119,9 +183,13 @@ export default function Home() {
   };
 
   const handleCategoryRateChange = async (category: string, newRate: number) => {
-    if (!user || !db) return;
+    if (!user) return;
     const newCategoryRates = { ...categoryRates, [category]: newRate };
     setCategoryRates(newCategoryRates);
+    if (!db) {
+      if (typeof window !== "undefined") localStorage.setItem("categoryRates", JSON.stringify(newCategoryRates));
+      return;
+    }
     try {
         const userDocRef = doc(db, "users", user.uid);
         await updateDoc(userDocRef, { [`categoryRates.${category}`]: newRate });
@@ -134,17 +202,42 @@ export default function Home() {
     }
   };
 
-  const handleSaveWorkday = async (date: Date, hours: number, categories?: { name: string, hours: number }[]) => {
-    if (!user || !db) return;
-    const dateString = formatISO(date, { representation: 'date' });
+  const handleSaveWorkday = async (
+    date: Date, 
+    hours: number, 
+    categories?: { name: string; hours: number; startTime?: string; endTime?: string }[],
+    interval?: { startTime?: string; endTime?: string }
+  ) => {
+    if (!user) return;
+    const dateString = format(date, 'yyyy-MM-dd');
     
-    const originalWorkdays = workdays;
-    const originalSavedCategories = savedCategories;
+    const cleanEntry: Record<string, any> = { 
+      worked: true, 
+      hours: Number(hours) || 0,
+      startTime: interval?.startTime || "09:00",
+      endTime: interval?.endTime || "17:00",
+    };
 
-    const entry = { worked: true, hours, categories };
+    if (categories && categories.length > 0) {
+      const validCategories = categories
+        .filter(c => c && c.name && c.name.trim().length > 0)
+        .map(c => {
+          const item: Record<string, any> = {
+            name: c.name.trim(),
+            hours: Number(c.hours) || 0,
+          };
+          if (c.startTime) item.startTime = c.startTime;
+          if (c.endTime) item.endTime = c.endTime;
+          return item;
+        });
+      if (validCategories.length > 0) {
+        cleanEntry.categories = validCategories;
+      }
+    }
+
     const newWorkdays = {
       ...workdays,
-      [dateString]: entry,
+      [dateString]: cleanEntry,
     };
     setWorkdays(newWorkdays);
 
@@ -155,33 +248,57 @@ export default function Home() {
       setSavedCategories(updatedCategories);
     }
 
+    // Always immediately persist to localStorage
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("workdays", JSON.stringify(newWorkdays));
+        localStorage.setItem("savedCategories", JSON.stringify(updatedCategories));
+      } catch (e) {
+        console.error("Local storage save error:", e);
+      }
+    }
+
+    if (!db) {
+      return;
+    }
+
     try {
       const userDocRef = doc(db, "users", user.uid);
-      const updates: any = { [`workdays.${dateString}`]: entry };
-      if (newCategoriesNames.length > 0) {
-        await setDoc(userDocRef, { workdays: { [dateString]: entry }, savedCategories: updatedCategories }, { merge: true });
-      } else {
-        await setDoc(userDocRef, { workdays: { [dateString]: entry } }, { merge: true });
-      }
+      await setDoc(
+        userDocRef, 
+        { 
+          workdays: { [dateString]: cleanEntry }, 
+          savedCategories: updatedCategories 
+        }, 
+        { merge: true }
+      );
     } catch (error) {
-      setWorkdays(originalWorkdays);
-      setSavedCategories(originalSavedCategories);
+      console.error("Firestore save error:", error);
+      // Keep optimistic workdays in state and localStorage so the user never loses their data!
       toast({
-          variant: "destructive",
-          title: "Помилка збереження",
-          description: "Спробуйте ще раз.",
+        title: "Збережено на пристрої",
+        description: "Відмітка збережена локально (помилка синхронізації з хмарою).",
       });
     }
   };
   
   const handleRemoveWorkday = async (date: Date) => {
-    if (!user || !db) return;
-    const dateString = formatISO(date, { representation: 'date' });
+    if (!user) return;
+    const dateString = format(date, 'yyyy-MM-dd');
     
-    const originalWorkdays = workdays;
-    const newWorkdays = {...workdays};
+    const newWorkdays = { ...workdays };
     delete newWorkdays[dateString];
     setWorkdays(newWorkdays);
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("workdays", JSON.stringify(newWorkdays));
+      } catch (e) {
+        console.error("Local storage delete error:", e);
+      }
+    }
+
+    if (!db) return;
 
     try {
       const userDocRef = doc(db, "users", user.uid);
@@ -189,19 +306,56 @@ export default function Home() {
         [`workdays.${dateString}`]: deleteField()
       });
     } catch (error) {
-      setWorkdays(originalWorkdays);
+      console.error("Firestore delete error:", error);
+    }
+  };
+
+  const handleDeleteSavedCategory = async (categoryToDelete: string) => {
+    if (!user) return;
+    const updated = savedCategories.filter(c => c !== categoryToDelete);
+    setSavedCategories(updated);
+
+    const updatedRates = { ...categoryRates };
+    delete updatedRates[categoryToDelete];
+    setCategoryRates(updatedRates);
+
+    if (!db) {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("savedCategories", JSON.stringify(updated));
+        localStorage.setItem("categoryRates", JSON.stringify(updatedRates));
+      }
       toast({
-          variant: "destructive",
-          title: "Помилка видалення",
-          description: "Не вдалося видалити відмітку.",
+        title: "Категорію видалено",
+        description: `Категорію "${categoryToDelete}" видалено зі списку.`,
+      });
+      return;
+    }
+
+    try {
+      const userDocRef = doc(db, "users", user.uid);
+      await updateDoc(userDocRef, {
+        savedCategories: updated,
+        [`categoryRates.${categoryToDelete}`]: deleteField(),
+      });
+      toast({
+        title: "Категорію видалено",
+        description: `Категорію "${categoryToDelete}" видалено зі списку.`,
+      });
+    } catch (error) {
+      console.error("Delete category error:", error);
+      toast({
+        variant: "destructive",
+        title: "Помилка видалення",
+        description: "Не вдалося видалити категорію з бази даних.",
       });
     }
-  }
+  };
 
   const handleLogout = async () => {
     if (auth) {
       await signOut(auth);
     }
+    signOutGuest?.();
     router.push("/login");
   };
 
@@ -249,6 +403,7 @@ export default function Home() {
               selectedDate={selectedDate}
               workdays={workdays}
               savedCategories={savedCategories}
+              onDeleteSavedCategory={handleDeleteSavedCategory}
               onSave={handleSaveWorkday}
               onRemove={handleRemoveWorkday}
               onDateChange={setSelectedDate}
@@ -263,13 +418,21 @@ export default function Home() {
               onCategoryRateChange={handleCategoryRateChange}
             />
           </div>
-          <div className="lg:col-span-3">
+          <div className="flex flex-col gap-6 lg:col-span-3">
             <WorkdayCalendar
-                workdays={workdays} 
-                selectedDate={selectedDate}
-                onDateSelect={setSelectedDate}
-                currentMonth={currentMonth}
-                onMonthChange={setCurrentMonth}
+              workdays={workdays} 
+              selectedDate={selectedDate}
+              onDateSelect={setSelectedDate}
+              currentMonth={currentMonth}
+              onMonthChange={setCurrentMonth}
+            />
+            <WorkdayReport
+              workdays={workdays}
+              currentMonth={currentMonth}
+              onMonthChange={setCurrentMonth}
+              onSelectDate={setSelectedDate}
+              hourlyRate={hourlyRate}
+              categoryRates={categoryRates}
             />
           </div>
         </div>
