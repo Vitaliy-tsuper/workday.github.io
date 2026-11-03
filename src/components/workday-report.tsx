@@ -230,7 +230,7 @@ export function WorkdayReport({
       return;
     }
 
-    const headers = ["Дата", "День тижня", "Час", "К-сть годин (дес)", "К-сть годин", "Категорії", "Сума (грн)"];
+    const headers = ["Дата", "День тижня", "Час", "К-сть годин", "Категорії", "Сума (грн)"];
     const csvRows = [headers.map((h) => `"${h}"`).join(";")];
 
     rows.forEach((r) => {
@@ -239,7 +239,6 @@ export function WorkdayReport({
           `"${r.formattedDate}"`,
           `"${r.dayOfWeek}"`,
           `"${r.timeText}"`,
-          `"${r.hours}"`,
           `"${r.hoursText}"`,
           `"${(r.categoriesText || "").replace(/"/g, '""')}"`,
           `"${Math.round(r.earnings || 0)}"`,
@@ -253,7 +252,6 @@ export function WorkdayReport({
         `"ПІДСУМОК: ${totalDays} днів"`,
         `""`,
         `""`,
-        `"${totalHours}"`,
         `"${formatHoursAndMinutes(totalHours)}"`,
         `""`,
         `"${Math.round(totalEarnings)}"`,
@@ -500,14 +498,9 @@ export function WorkdayReport({
                     </div>
                   </TableCell>
                   <TableCell className="text-right py-4 pr-4">
-                    <div className="flex flex-col items-end">
-                      <span className="text-base font-extrabold text-primary">
-                        {formatHoursAndMinutes(totalHours)}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground font-normal">
-                        Всього: {totalHours} год
-                      </span>
-                    </div>
+                    <span className="text-base font-extrabold text-primary">
+                      {formatHoursAndMinutes(totalHours)}
+                    </span>
                   </TableCell>
                 </TableRow>
               </TableFooter>
