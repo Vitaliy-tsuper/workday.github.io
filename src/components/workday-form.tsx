@@ -2,9 +2,9 @@
 
 import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm, useFieldArray } from "react-hook-form"
+import { useForm, useFieldArray, useWatch } from "react-hook-form"
 import { z } from "zod"
-import { format, formatISO, isValid } from "date-fns"
+import { format, isValid } from "date-fns"
 import { uk } from "date-fns/locale"
 import { Calendar as CalendarIcon, Check, Trash2, Clock, Plus, X } from "lucide-react"
 
@@ -109,6 +109,11 @@ export function WorkdayForm({
     name: "categories",
   })
 
+  const watchedCategories = useWatch({
+    control: form.control,
+    name: "categories",
+  }) || []
+
   const dateIsValid = selectedDate && isValid(selectedDate)
   const dateString = dateIsValid ? format(selectedDate, 'yyyy-MM-dd') : ""
   const entry = dateIsValid ? workdays[dateString] : undefined
@@ -123,7 +128,6 @@ export function WorkdayForm({
         const start = entry.startTime || "09:00"
         let end = entry.endTime
         if (!end) {
-          // Calculate end based on legacy entry.hours from start
           const [sH, sM] = start.split(":").map(Number)
           const totalMin = (sH * 60 + sM) + Math.round((entry.hours || 8) * 60)
           const endH = Math.floor(totalMin / 60) % 24
@@ -147,6 +151,70 @@ export function WorkdayForm({
   const calculatedHours = React.useMemo(() => {
     return calculateHoursFromInterval(watchStart, watchEnd)
   }, [watchStart, watchEnd])
+
+  // Automatically calculate category hours when start or end time changes
+  const handleCategoryTimeChange = (
+    index: number,
+    field: "startTime" | "endTime",
+    value: string
+  ) => {
+    form.setValue(`categories.${index}.${field}`, value, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+
+    const currentStart = field === "startTime" ? value : form.getValues(`categories.${index}.startTime`)
+    const currentEnd = field === "endTime" ? value : form.getValues(`categories.${index}.endTime`)
+
+    if (currentStart && currentEnd) {
+      const calculated = calculateHoursFromInterval(currentStart, currentEnd)
+      if (calculated > 0) {
+        form.setValue(`categories.${index}.hours`, calculated, {
+          shouldDirty: true,
+          shouldValidate: true,
+        })
+      }
+    }
+  }
+
+  // Set category time interval to match full shift
+  const handleApplyFullShiftToCategory = (index: number) => {
+    const s = form.getValues("startTime") || "09:00"
+    const e = form.getValues("endTime") || "17:00"
+    form.setValue(`categories.${index}.startTime`, s, { shouldDirty: true })
+    form.setValue(`categories.${index}.endTime`, e, { shouldDirty: true })
+    const calculated = calculateHoursFromInterval(s, e)
+    if (calculated > 0) {
+      form.setValue(`categories.${index}.hours`, calculated, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    }
+  }
+
+  // Add new category with precalculated interval & hours
+  const handleAddCategory = () => {
+    const currentCats = form.getValues("categories") || []
+    let defaultStart = watchStart || "09:00"
+    let defaultEnd = watchEnd || "17:00"
+
+    if (currentCats.length > 0) {
+      const lastCat = currentCats[currentCats.length - 1]
+      if (lastCat.endTime && lastCat.endTime !== watchEnd) {
+        defaultStart = lastCat.endTime
+      }
+    }
+
+    const calculated = calculateHoursFromInterval(defaultStart, defaultEnd)
+    const initialHours = calculated > 0 ? calculated : (calculatedHours > 0 ? calculatedHours : 4)
+
+    append({
+      name: "",
+      startTime: defaultStart,
+      endTime: defaultEnd,
+      hours: initialHours,
+    })
+  }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     if (!dateIsValid) return
@@ -258,6 +326,14 @@ export function WorkdayForm({
                           type="time" 
                           className="bg-card text-center font-medium" 
                           {...field} 
+                          onChange={(e) => {
+                            const val = e.target.value
+                            field.onChange(val)
+                            const currentCats = form.getValues("categories") || []
+                            if (currentCats.length === 1) {
+                              handleCategoryTimeChange(0, "startTime", val)
+                            }
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -275,6 +351,14 @@ export function WorkdayForm({
                           type="time" 
                           className="bg-card text-center font-medium" 
                           {...field} 
+                          onChange={(e) => {
+                            const val = e.target.value
+                            field.onChange(val)
+                            const currentCats = form.getValues("categories") || []
+                            if (currentCats.length === 1) {
+                              handleCategoryTimeChange(0, "endTime", val)
+                            }
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -287,111 +371,129 @@ export function WorkdayForm({
             {/* Categories section */}
             <div className="space-y-3 pt-1">
               <div className="flex items-center justify-between">
-                <FormLabel className="text-sm font-medium">Категорії / Проєкти (необов&apos;язково)</FormLabel>
+                <div>
+                  <FormLabel className="text-sm font-medium">Категорії / Проєкти</FormLabel>
+                  <p className="text-[11px] text-muted-foreground">Години обчислюються автоматично з проміжку часу</p>
+                </div>
                 <Button 
                   type="button" 
                   variant="outline" 
                   size="sm" 
                   className="h-7 text-xs"
-                  onClick={() => append({ 
-                    name: "", 
-                    startTime: watchStart || "09:00", 
-                    endTime: watchEnd || "13:00", 
-                    hours: 4 
-                  })}
+                  onClick={handleAddCategory}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" /> Додати категорію
                 </Button>
               </div>
               
-              {fields.map((field, index) => (
-                <div key={field.id} className="rounded-lg border bg-card p-2.5 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <FormField
-                      control={form.control}
-                      name={`categories.${index}.name`}
-                      render={({ field }) => (
-                        <FormItem className="flex-1">
-                          <FormControl>
-                            <CategoryCombobox 
-                              value={field.value || ""} 
-                              onChange={field.onChange}
-                              savedCategories={savedCategories}
-                              onDeleteCategory={onDeleteSavedCategory}
-                              placeholder="Назва проєкту (напр. Проєкт А)" 
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => remove(index)}
-                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
+              {fields.map((field, index) => {
+                const cat = watchedCategories[index] || {}
+                const catHours = cat.hours || 0
+                const catStart = cat.startTime || ""
+                const catEnd = cat.endTime || ""
 
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 flex-1">
-                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">Від:</span>
-                      <Input
-                        type="time"
-                        className="h-7 text-xs px-1 text-center"
-                        value={form.watch(`categories.${index}.startTime`) || ""}
-                        onChange={(e) => {
-                          const s = e.target.value
-                          form.setValue(`categories.${index}.startTime`, s)
-                          const end = form.watch(`categories.${index}.endTime`)
-                          if (s && end) {
-                            const h = calculateHoursFromInterval(s, end)
-                            form.setValue(`categories.${index}.hours`, h, { shouldValidate: true })
-                          }
-                        }}
-                      />
-                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">До:</span>
-                      <Input
-                        type="time"
-                        className="h-7 text-xs px-1 text-center"
-                        value={form.watch(`categories.${index}.endTime`) || ""}
-                        onChange={(e) => {
-                          const end = e.target.value
-                          form.setValue(`categories.${index}.endTime`, end)
-                          const s = form.watch(`categories.${index}.startTime`)
-                          if (s && end) {
-                            const h = calculateHoursFromInterval(s, end)
-                            form.setValue(`categories.${index}.hours`, h, { shouldValidate: true })
-                          }
-                        }}
-                      />
-                    </div>
-                    <div className="w-20 flex items-center gap-1">
+                return (
+                  <div key={field.id} className="rounded-lg border bg-card p-3 space-y-2.5 shadow-sm">
+                    {/* Category Selector / Input */}
+                    <div className="flex items-center gap-2">
                       <FormField
                         control={form.control}
-                        name={`categories.${index}.hours`}
+                        name={`categories.${index}.name`}
                         render={({ field }) => (
                           <FormItem className="flex-1">
                             <FormControl>
-                              <Input 
-                                type="number" 
-                                step="0.25" 
-                                placeholder="Год" 
-                                className="h-7 text-xs px-1 text-center font-medium" 
-                                {...field} 
+                              <CategoryCombobox 
+                                value={field.value || ""} 
+                                onChange={field.onChange}
+                                savedCategories={savedCategories}
+                                onDeleteCategory={onDeleteSavedCategory}
+                                placeholder="Назва проєкту (напр. Проєкт А)" 
                               />
                             </FormControl>
+                            <FormMessage />
                           </FormItem>
                         )}
                       />
-                      <span className="text-xs text-muted-foreground">год</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => remove(index)}
+                        title="Видалити категорію"
+                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Time interval and calculated hours */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40 text-xs">
+                      {/* Time interval pickers */}
+                      <div className="flex items-center gap-1.5 flex-1 min-w-[210px]">
+                        <span className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">Проміжок:</span>
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="time"
+                            className="h-7 text-xs px-1.5 text-center w-[74px] bg-background font-medium"
+                            value={catStart}
+                            onChange={(e) => handleCategoryTimeChange(index, "startTime", e.target.value)}
+                            title="Час початку в цій категорії"
+                          />
+                          <span className="text-muted-foreground text-[11px]">—</span>
+                          <Input
+                            type="time"
+                            className="h-7 text-xs px-1.5 text-center w-[74px] bg-background font-medium"
+                            value={catEnd}
+                            onChange={(e) => handleCategoryTimeChange(index, "endTime", e.target.value)}
+                            title="Час закінчення в цій категорії"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted"
+                          onClick={() => handleApplyFullShiftToCategory(index)}
+                          title="Встановити час повної зміни"
+                        >
+                          Вся зміна
+                        </Button>
+                      </div>
+
+                      {/* Calculated Hours Input & Formatted badge */}
+                      <div className="flex items-center gap-1.5">
+                        <FormField
+                          control={form.control}
+                          name={`categories.${index}.hours`}
+                          render={({ field }) => (
+                            <FormItem className="w-16">
+                              <FormControl>
+                                <Input 
+                                  type="number" 
+                                  step="0.25" 
+                                  min="0.1"
+                                  max="24"
+                                  placeholder="Год" 
+                                  className="h-7 text-xs px-1 text-center font-bold text-foreground bg-background" 
+                                  {...field} 
+                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                                  title="Кількість годин (обчислюється автоматично)"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <span className="text-xs font-medium text-muted-foreground">год</span>
+                        {catHours > 0 && (
+                          <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded whitespace-nowrap">
+                            {formatHoursAndMinutes(catHours)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             
             <div className="flex flex-col gap-2 pt-2">

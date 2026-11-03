@@ -33,10 +33,11 @@ export const calculateHoursFromInterval = (
   const [sH, sM] = start.split(":").map(Number);
   const [eH, eM] = end.split(":").map(Number);
   if (isNaN(sH) || isNaN(sM) || isNaN(eH) || isNaN(eM)) return 0;
+  if (sH === eH && sM === eM) return 0;
 
   let totalMinutes = (eH * 60 + eM) - (sH * 60 + sM);
-  if (totalMinutes <= 0) {
-    // Over midnight shift or 24h
+  if (totalMinutes < 0) {
+    // Over midnight shift
     totalMinutes += 24 * 60;
   }
   totalMinutes -= (breakMinutes || 0);
