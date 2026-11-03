@@ -470,13 +470,17 @@ export function WorkdayForm({
                               <FormControl>
                                 <Input 
                                   type="number" 
-                                  step="0.25" 
-                                  min="0.1"
+                                  step="any" 
+                                  min="0"
                                   max="24"
                                   placeholder="Год" 
                                   className="h-7 text-xs px-1 text-center font-bold text-foreground bg-background" 
                                   {...field} 
-                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                                  value={field.value ?? ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    field.onChange(val === "" ? "" : parseFloat(val) || 0);
+                                  }}
                                   title="Кількість годин (обчислюється автоматично)"
                                 />
                               </FormControl>

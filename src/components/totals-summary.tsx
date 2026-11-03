@@ -163,6 +163,8 @@ export function TotalsSummary({ workdays, currentMonth, hourlyRate, onHourlyRate
                 <Input
                     id="hourly-rate"
                     type="number"
+                    step="any"
+                    min="0"
                     value={localRate}
                     onChange={(e) => setLocalRate(e.target.value)}
                     placeholder="Ваша ставка"
@@ -197,6 +199,8 @@ export function TotalsSummary({ workdays, currentMonth, hourlyRate, onHourlyRate
                     <div className="flex-1 flex items-center gap-2">
                       <Input
                           type="number"
+                          step="any"
+                          min="0"
                           value={localCatRate}
                           onChange={(e) => setLocalCategoryRates(prev => ({ ...prev, [cat]: e.target.value }))}
                           placeholder={hourlyRate.toString()}
